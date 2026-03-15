@@ -1,0 +1,40 @@
+{
+  "name": "@ljc545w/weixin",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "skills",
+    "index.ts",
+    "tsconfig.json",
+    "openclaw.plugin.json"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "build": "tsc || true",
+    "dev": "tsc --watch",
+    "prepack": "npm install --omit=dev"
+  },
+  "dependencies": {
+  },
+  "bundledDependencies": [
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "homepage": "https://github.com/ljc545w/weixin",
+  "bundleDependencies": [
+  ]
+}

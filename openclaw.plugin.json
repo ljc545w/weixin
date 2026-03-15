@@ -1,0 +1,16 @@
+{
+  "id": "weixin",
+  "name": "weixin Channel",
+  "description": "weixin channel plugin with message support",
+  "channels": ["weixin"],
+  "skills": [],
+  "capabilities": {
+    "proactiveMessaging": true,
+    "cronJobs": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
