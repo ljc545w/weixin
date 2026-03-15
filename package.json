@@ -23,8 +23,10 @@
     "prepack": "npm install --omit=dev"
   },
   "dependencies": {
+    "ws": "^8.18.0"
   },
   "bundledDependencies": [
+    "ws"
   ],
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -34,7 +36,5 @@
   "peerDependencies": {
     "openclaw": "*"
   },
-  "homepage": "https://github.com/ljc545w/weixin",
-  "bundleDependencies": [
-  ]
+  "homepage": "https://github.com/ljc545w/weixin"
 }
