@@ -4,6 +4,7 @@ import http from "http";
 import type { ResolvedWeixinAccount, WeixinMessage, WeixinChatRoomUserProfile } from "./types.js";
 import { getWeixinRuntime } from "./runtime.js";
 import { sendText } from "./outbound.js";
+import { setReplyUrlForAccount } from "./runtime.js";
 
 export interface GatewayContext {
   account: ResolvedWeixinAccount;
@@ -44,6 +45,8 @@ interface QueuedMessage {
   attachments?: [];
   // groupUserInfo
   groupUserInfo?: WeixinChatRoomUserProfile;
+  // weixinMessage
+  weixinMessage: WeixinMessage;
 }
 
 export async function getGatewayUrl(ctx: GatewayContext): Promise<string> {
@@ -137,12 +140,12 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
   const commandAuthorized = allowAll || allowFromList.some((entry: string) => 
     entry.toUpperCase() === realSenderId.toUpperCase()
   );
-
+  setReplyUrlForAccount(account.accountId, message.replyUrl);
   const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext({
     Body: body,
     BodyForAgent: agentBody,
     RawBody: message.content,
-    CommandBody: message.content,
+    CommandBody: commandAuthorized ? message.content : null,
     From: fromAddress,
     To: toAddress,
     SessionKey: route.sessionKey,
@@ -159,7 +162,6 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
     groupId: message.isGroupMsg ? message.senderId : null,
     CommandAuthorized: commandAuthorized
   });
-
   try {
     const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
     let hasResponse = false;
@@ -200,7 +202,8 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
                 replyToId: message.senderId,
                 messageId: message.messageId,
                 account: account,
-                replyUrl: message.replyUrl
+                replyUrl: message.replyUrl,
+                message: message.weixinMessage
               };
               await sendText(outboundCtx);
               log?.info(`[weixin:${account.accountId}] Sent text reply (${message.type})`);
@@ -293,6 +296,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               timestamp: weixinMessage.createTime.toString(),
               isGroupMsg: weixinMessage.isChatRoomMsg == 1 ? true : false,
               replyUrl: weixinMessage.replyUrl,
+              weixinMessage: weixinMessage,
             };
             if(queueMessage.isGroupMsg){
               queueMessage.groupUserInfo = weixinMessage.chatRoomMemberInfo;
@@ -412,6 +416,7 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
               timestamp: weixinMessage.createTime.toString(),
               isGroupMsg: weixinMessage.isChatRoomMsg == 1 ? true : false,
               replyUrl: weixinMessage.replyUrl,
+              weixinMessage: weixinMessage
             };
             if(queueMessage.isGroupMsg){
               queueMessage.groupUserInfo = weixinMessage.chatRoomMemberInfo;

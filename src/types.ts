@@ -59,3 +59,11 @@ export interface WeixinMessage{
   realUserName: string;
   chatRoomMemberInfo?: WeixinChatRoomUserProfile;
 }
+
+export interface WeixinReferenceMessage{
+  msgType: number;
+  content: string;
+  msgSvrId: number | string;
+  createTime: number;
+  userName: string;
+}

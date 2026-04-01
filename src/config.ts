@@ -56,19 +56,20 @@ export function resolveWeixinAccount(
       enabled: weixin?.enabled,
       accountId: weixin?.accountId,
       gateway: weixin?.gateway,
-      allowFrom: weixin?.allowFrom
+      allowFrom: weixin?.allowFrom,
     };
   } else {
     // 命名账户从 accounts 读取
     const account = weixin?.accounts?.[resolvedAccountId];
-    accountConfig = account ?? {};
+    // 如果为空，返回默认账户
+    accountConfig = account ?? weixin ?? {};
   }
 
   return {
     enabled: accountConfig.enabled !== false,
     accountId: accountConfig.accountId || "",
     gateway: accountConfig.gateway,
-    allowFrom: accountConfig.allowFrom || []
+    allowFrom: accountConfig.allowFrom || [],
   };
 }
 

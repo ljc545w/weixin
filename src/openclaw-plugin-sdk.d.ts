@@ -216,7 +216,7 @@ declare module "openclaw/plugin-sdk" {
    * 频道插件 Messaging 接口
    */
   export interface ChannelPluginMessaging {
-    normalizeTarget?: (target: string) => NormalizeTargetResult;
+    normalizeTarget?: (target: string) => string | null;
     targetResolver?: TargetResolver;
     [key: string]: unknown;
   }

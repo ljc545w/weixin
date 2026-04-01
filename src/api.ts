@@ -1,3 +1,4 @@
+import type { WeixinReferenceMessage } from "./types.js";
 /**
  * 获取全局唯一的消息序号（范围 0 ~ 65535）
  * 使用毫秒级时间戳低位 + 随机数异或混合，无状态，避免碰撞
@@ -104,4 +105,88 @@ export async function sendTextMessage(
     content: content
   }
   return apiRequest(`${replyUrl}`, "POST", `sendText/`, json);
+}
+
+export async function sendQuoteMessage(
+  accountId: string,
+  replyUrl: string,
+  replyToId: string,
+  content: string,
+  referMsg: WeixinReferenceMessage
+): Promise<MessageResponse> {
+  let json = {
+    accountId: accountId,
+    userName: replyToId,
+    content: content,
+    referMsg: referMsg
+  }
+  return apiRequest(`${replyUrl}`, "POST", `sendQuote/`, json);
+}
+
+export async function sendImageMessage(
+  accountId: string,
+  replyUrl: string,
+  replyToId: string,
+  filePath: string,
+  referMsg?: WeixinReferenceMessage
+): Promise<MessageResponse> {
+  let json = {
+    accountId: accountId,
+    userName: replyToId,
+    filePath: filePath,
+  } as Record<string, unknown>;
+  if(referMsg){
+    json.referMsg = referMsg;
+  }
+  return apiRequest(`${replyUrl}`, "POST", `sendImage/`, json);
+}
+
+export async function sendFileMessage(
+  accountId: string,
+  replyUrl: string,
+  replyToId: string,
+  filePath: string,
+): Promise<MessageResponse> {
+  let json = {
+    accountId: accountId,
+    userName: replyToId,
+    filePath: filePath
+  }
+  return apiRequest(`${replyUrl}`, "POST", `sendFile/`, json);
+}
+
+export async function sendEmojiMessage(
+  accountId: string,
+  replyUrl: string,
+  replyToId: string,
+  filePath: string,
+  referMsg?: WeixinReferenceMessage
+): Promise<MessageResponse> {
+  let json = {
+    accountId: accountId,
+    userName: replyToId,
+    filePath: filePath,
+  } as Record<string, unknown>;
+  if(referMsg){
+    json.referMsg = referMsg;
+  }
+  return apiRequest(`${replyUrl}`, "POST", `sendEmoji/`, json);
+}
+
+export async function sendPatMessage(
+  accountId: string,
+  replyUrl: string,
+  replyToId: string,
+  replyToIdEx?: string,
+): Promise<MessageResponse> {
+  let json = {
+    accountId: accountId,
+  } as Record<string, unknown>;
+  if(!replyToIdEx){
+    json.userName = replyToId;
+  }else{
+    json.chatRoomUserName = replyToId;
+    json.userName = replyToIdEx;
+  }
+  return apiRequest(`${replyUrl}`, "POST", `sendPat/`, json);
 }
