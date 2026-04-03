@@ -1,8 +1,10 @@
 import {
   type ChannelPlugin,
-  type NormalizeTargetResult,
   applyAccountNameToChannelSection,
 } from "openclaw/plugin-sdk";
+
+import {sendText, sendMedia} from "./outbound.js";
+import {getReplyUrlForAccount} from "./runtime.js";
 
 import type { ResolvedWeixinAccount } from "./types.js";
 import { DEFAULT_ACCOUNT_ID, listWeixinAccountIds, resolveWeixinAccount, applyWeixinAccountConfig, resolveDefaultWeixinAccountId } from "./config.js";
@@ -99,8 +101,19 @@ export const weixinPlugin: ChannelPlugin<ResolvedWeixinAccount> = {
   },
   // Messaging 配置：用于解析目标地址
   messaging: {
-    normalizeTarget: (target: string): NormalizeTargetResult => {
-      return {ok: false, error: `Unrecognized target format: ${target}`};
+    normalizeTarget: (target: string): string | null => {
+      let id = target;
+      if (id.startsWith("wxid_")) {
+        return id;
+      }
+      if (id.endsWith("@chatroom")) {
+        return id;
+      }
+      if(id.length < 32)
+      {
+        return id;
+      }
+      return null;
     },
     targetResolver: {
       /**
@@ -124,10 +137,65 @@ export const weixinPlugin: ChannelPlugin<ResolvedWeixinAccount> = {
     deliveryMode: "direct",
     chunker: chunkText,
     chunkerMode: "markdown",
-    textChunkLimit: 2000
+    textChunkLimit: 2000,
+    sendText: async ({ to, text, accountId, replyToId, cfg }) => {
+      if(!text){
+        return {
+          channel: "weixin",
+          messageId: "",
+          error: new Error("text is empty"),
+        };
+      }
+      const account = resolveWeixinAccount(cfg, accountId);
+      let replyUrl = accountId ? getReplyUrlForAccount(accountId) : undefined;
+      if(!replyUrl){
+        return {
+          channel: "weixin",
+          messageId: "",
+          error: new Error("account replyUrl is empty"),
+        };
+      }
+      let outboundCtx = {
+          account: account,
+          to,
+          text,
+          replyToId,
+          replyUrl: replyUrl,
+      };
+      const result = await sendText(outboundCtx);
+      return {
+        channel: "weixin",
+        messageId: result.messageId,
+        error: result.error ? new Error(result.error) : undefined,
+      };
+    },
+    sendMedia: async ({ to, text, mediaUrl, accountId, replyToId, cfg }) => {
+      const account = resolveWeixinAccount(cfg, accountId);
+      let replyUrl = accountId ? getReplyUrlForAccount(accountId) : undefined;
+      if(!replyUrl){
+        return {
+          channel: "weixin",
+          messageId: "",
+          error: new Error("account replyUrl is empty"),
+        };
+      }
+      let outboundCtx = {
+          account: account,
+          to,
+          text,
+          replyToId,
+          replyUrl: replyUrl,
+          attachment: mediaUrl,
+      };
+      const result = await sendMedia(outboundCtx);
+      return {
+        channel: "weixin",
+        messageId: result.messageId,
+        error: result.error ? new Error(result.error) : undefined,
+      };
+    },
   },
   gateway: {
-    // TODO: 必须完善的方法
     startAccount: async (ctx) => {
       const { account, abortSignal, log, cfg } = ctx;
 
