@@ -1,9 +1,10 @@
 import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
+import { DOMParser } from "@xmldom/xmldom";
 
 import type { ResolvedWeixinAccount, WeixinMessage, WeixinChatRoomUserProfile } from "./types.js";
 import { getWeixinRuntime } from "./runtime.js";
-import { sendText } from "./outbound.js";
+import { sendText, sendPat } from "./outbound.js";
 import { setReplyUrlForAccount } from "./runtime.js";
 
 // ============================================================================
@@ -161,6 +162,102 @@ export async function getGatewayUrl(ctx: GatewayContext): Promise<string> {
 }
 
 /**
+ * Parse XML pat message and extract target user info
+ * Strict mode: root must be <appmsg> and must contain <pat> element
+ */
+function parsePatMessage(xml: string): { targetId: string; chatRoom?: string } | null {
+  if (!xml || typeof xml !== "string") {
+    return null;
+  }
+
+  // Quick pre-check: must contain <appmsg> and <pat> tags
+  if (!xml.includes("<appmsg>") || !xml.includes("<pat")) {
+    return null;
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+
+    // Check for parse errors
+    const parseError = doc.getElementsByTagName("parsererror")[0];
+    if (parseError) {
+      return null;
+    }
+
+    // Root must be <appmsg>
+    const rootElement = doc.documentElement;
+    if (!rootElement || rootElement.tagName !== "appmsg") {
+      return null;
+    }
+
+    // Get <pat> element (must be child of appmsg)
+    const patElements = rootElement.getElementsByTagName("pat");
+    if (!patElements || patElements.length === 0) {
+      return null;
+    }
+
+    const patElement = patElements[0];
+    const targetId = patElement.textContent?.trim();
+
+    if (!targetId) {
+      return null;
+    }
+
+    // Get chatRoom attribute
+    const chatRoom = patElement.getAttribute("chatRoom") || undefined;
+
+    return {
+      chatRoom,
+      targetId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send outbound pat message
+ */
+async function sendOutboundPat(
+  ctx: GatewayContext,
+  message: QueuedMessage,
+  targetId: string,
+  chatRoom?: string
+): Promise<void> {
+  const { account, log } = ctx;
+
+  try {
+    const target = chatRoom || targetId;
+    const outboundCtx = {
+      to: target,
+      text: "",
+      accountId: account.accountId,
+      replyToId: message.senderId,
+      messageId: message.messageId,
+      account: account,
+      replyUrl: message.replyUrl,
+      message: message.weixinMessage,
+    };
+
+    // For group chat pat, we need to specify the target user
+    if (chatRoom && targetId !== chatRoom) {
+      // Group pat: pat a specific user in the group
+      outboundCtx.to = chatRoom;
+      // Pass the target user via message context
+      outboundCtx.message = {
+        ...message.weixinMessage,
+        patTarget: targetId,
+      } as any;
+    }
+
+    await sendPat(outboundCtx);
+    log?.info(`[weixin:${account.accountId}] Sent pat to ${targetId}${chatRoom ? ` in ${chatRoom}` : ""}`);
+  } catch (err) {
+    log?.error(`[weixin:${account.accountId}] Pat failed: ${err}`);
+  }
+}
+
+/**
  * Send outbound text message
  */
 async function sendOutboundMessage(
@@ -231,7 +328,15 @@ async function dispatchReply(
           const replyText = payload.text ?? "";
 
           if (replyText.trim()) {
-            await sendOutboundMessage(ctx, message, replyText);
+            // Check if this is a pat message in XML format
+            const patInfo = parsePatMessage(replyText);
+            if (patInfo) {
+              // Strict mode: only XML pat format is processed, no fallback
+              await sendOutboundPat(ctx, message, patInfo.targetId, patInfo.chatRoom);
+            } else {
+              // Not a pat message, send as normal text
+              await sendOutboundMessage(ctx, message, replyText);
+            }
           }
 
           pluginRuntime.channel.activity.record({

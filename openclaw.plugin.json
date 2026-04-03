@@ -3,7 +3,7 @@
   "name": "weixin Channel",
   "description": "weixin channel plugin with message support",
   "channels": ["weixin"],
-  "skills": [],
+  "skills": ["skills/weixin-pat"],
   "capabilities": {
     "proactiveMessaging": true,
     "cronJobs": true

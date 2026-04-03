@@ -23,10 +23,12 @@
     "prepack": "npm install --omit=dev"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.0",
     "ws": "^8.18.0"
   },
   "bundledDependencies": [
-    "ws"
+    "ws",
+    "@xmldom/xmldom"
   ],
   "devDependencies": {
     "@types/node": "^20.0.0",
