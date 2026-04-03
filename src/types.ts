@@ -58,6 +58,7 @@ export interface WeixinMessage{
   isChatRoomMsg: number;
   realUserName: string;
   chatRoomMemberInfo?: WeixinChatRoomUserProfile;
+  attachments?: string[];
 }
 
 export interface WeixinReferenceMessage{

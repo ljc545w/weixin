@@ -42,7 +42,7 @@ interface QueuedMessage {
   // isGroupMsg
   isGroupMsg: boolean;
   // attachments
-  attachments?: [];
+  attachments?: string[];
   // groupUserInfo
   groupUserInfo?: WeixinChatRoomUserProfile;
   // weixinMessage
@@ -122,11 +122,15 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
   }
 
   // 命令直接透传，不注入上下文
-  const agentBody = userContent.startsWith("/")
+  let agentBody = userContent.startsWith("/")
     ? userContent
     : systemPrompts.length > 0 
       ? `${contextInfo}\n\n${systemPrompts.join("\n")}\n\n${userContent}`
       : `${contextInfo}\n\n${userContent}`;
+  
+  if(message.attachments){
+    agentBody += `\n\n【消息包含以下附件】\n${message.attachments.map((att, idx) => `- 附件${idx + 1}: ${att}`).join("\n")}`;
+  }
   
   log?.info(`[weixin:${account.accountId}] agentBody length: ${agentBody.length}`);
 
@@ -297,11 +301,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               isGroupMsg: weixinMessage.isChatRoomMsg == 1 ? true : false,
               replyUrl: weixinMessage.replyUrl,
               weixinMessage: weixinMessage,
+              attachments: weixinMessage.attachments,
             };
             if(queueMessage.isGroupMsg){
               queueMessage.groupUserInfo = weixinMessage.chatRoomMemberInfo;
             }
-            if(queueMessage.type === 1){
+            if(queueMessage.type === 1 || queueMessage.type === 34 || queueMessage.type === 57){
               handleMessage(ctx, queueMessage);
             }else{
               console.log(`[weixin] message type ${queueMessage.type} is not support now, ignore it.`);
@@ -401,9 +406,11 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
           console.log(`[weixin] received message by http://${hostname}:${port}`);
           let body = "";
           req.on('data', (chunk) => {
+            console.log(`[weixin] received message data`);
             body += chunk.toString();
           });
           req.on('end', () => {
+            console.log(`[weixin] received message end, body length: ${body.length}`);
             let weixinMessage = JSON.parse(body) as WeixinMessage;
             let queueMessage = {} as QueuedMessage;
             queueMessage = {
@@ -416,26 +423,33 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
               timestamp: weixinMessage.createTime.toString(),
               isGroupMsg: weixinMessage.isChatRoomMsg == 1 ? true : false,
               replyUrl: weixinMessage.replyUrl,
+              attachments: weixinMessage.attachments,
               weixinMessage: weixinMessage
             };
             if(queueMessage.isGroupMsg){
               queueMessage.groupUserInfo = weixinMessage.chatRoomMemberInfo;
             }
-            if(queueMessage.type === 1){
+            if(queueMessage.type === 1 || queueMessage.type === 34 || queueMessage.type === 57){
               handleMessage(ctx, queueMessage);
             }else{
               console.log(`[weixin] message type ${queueMessage.type} is not support now, ignore it.`);
             }
+            res.writeHead( 200, {'Content-Type': 'text/html'} )
+            res.end('ok');
           });
-          res.writeHead( 200, {'Content-Type': 'text/html'} )
-          res.end('ok');
+          req.on('error', (err) => {
+            log?.error(`[weixin] http request error: ${err}`);
+            res.writeHead( 400, {'Content-Type': 'text/html'} )
+            res.end('400 Bad Request');
+          });
         }else{
           res.writeHead( 200, {'Content-Type': 'text/html'} )
-          res.write("ok");
-          res.end();
+          res.end("ok");
         }
       }catch(err){
         log?.error(`[weixin:${account.accountId}] failed to handle message: ${err}`);
+        res.writeHead( 400, {'Content-Type': 'text/html'} )
+        res.end('400 Bad Request');
       }
     });
     sharedHttp.on("error", (err:any) => {
