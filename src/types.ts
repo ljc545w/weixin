@@ -11,7 +11,6 @@ export interface WeixinConfig {
 export interface ResolvedWeixinAccount {
   enabled: boolean;
   accountId: string;
-  gateway?: string;
   allowFrom: [];
 }
 
@@ -19,10 +18,24 @@ export interface ResolvedWeixinAccount {
  * weixin 账户配置
  */
 export interface WeixinAccountConfig {
-  enabled?: boolean;
-  accountId?: string;
-  gateway?: string;
+  enabled: boolean;
   allowFrom?: [];
+}
+
+/**
+ * weixin 默认账户配置
+ */
+export interface WeixinDefaultAccountConfig extends WeixinAccountConfig{
+  accountId: string;
+}
+
+/**
+ * weixin 频道配置
+ */
+export interface WeixinChannelConfig {
+  gateway: string;
+  default?: WeixinDefaultAccountConfig;
+  accounts?: Record<string, WeixinAccountConfig>;
 }
 
 export interface WeixinUserProfile{

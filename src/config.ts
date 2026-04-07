@@ -1,11 +1,8 @@
-import type { ResolvedWeixinAccount, WeixinAccountConfig } from "./types.js";
+import type { ResolvedWeixinAccount, WeixinChannelConfig } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 export const DEFAULT_ACCOUNT_ID = "default";
 
-interface WeixinChannelConfig extends WeixinAccountConfig {
-  accounts?: Record<string, WeixinAccountConfig>;
-}
 
 /**
  * 列出所有 微信 账户 ID
@@ -14,13 +11,13 @@ export function listWeixinAccountIds(cfg: OpenClawConfig): string[] {
   const ids = new Set<string>();
   const weixin = cfg.channels?.weixin as WeixinChannelConfig | undefined;
 
-  if (weixin?.accountId) {
+  if(weixin?.default && weixin?.default.enabled){
     ids.add(DEFAULT_ACCOUNT_ID);
   }
 
   if (weixin?.accounts) {
     for (const accountId of Object.keys(weixin.accounts)) {
-      if (weixin.accounts[accountId]?.accountId) {
+      if (weixin.accounts[accountId].enabled) {
         ids.add(accountId);
       }
     }
@@ -34,7 +31,7 @@ export function listWeixinAccountIds(cfg: OpenClawConfig): string[] {
  */
 export function resolveDefaultWeixinAccountId(cfg: OpenClawConfig): string {
   const weixin = cfg.channels?.weixin as WeixinChannelConfig | undefined;
-  return weixin?.accountId || DEFAULT_ACCOUNT_ID;
+  return weixin?.default?.accountId || DEFAULT_ACCOUNT_ID;
 }
 
 /**
@@ -46,31 +43,25 @@ export function resolveWeixinAccount(
 ): ResolvedWeixinAccount {
   const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
   const weixin = cfg.channels?.weixin as WeixinChannelConfig | undefined;
-
-  // 基础配置
-  let accountConfig: WeixinAccountConfig = {};
-
-  if (resolvedAccountId === DEFAULT_ACCOUNT_ID) {
-    // 默认账户从顶层读取
-    accountConfig = {
-      enabled: weixin?.enabled,
-      accountId: weixin?.accountId,
-      gateway: weixin?.gateway,
-      allowFrom: weixin?.allowFrom,
+  // 读取默认账户
+  if (resolvedAccountId === DEFAULT_ACCOUNT_ID || resolvedAccountId === weixin?.default?.accountId) {
+    return {
+      enabled: weixin?.default?.enabled || false,
+      accountId: weixin?.default?.accountId || "",
+      allowFrom: weixin?.default?.allowFrom || [],
     };
   } else {
     // 命名账户从 accounts 读取
     const account = weixin?.accounts?.[resolvedAccountId];
-    // 如果为空，返回默认账户
-    accountConfig = account ?? weixin ?? {};
+    if(account){
+      return {
+        enabled: account.enabled,
+        accountId: resolvedAccountId,
+        allowFrom: account?.allowFrom || [],
+      };
+    }
   }
-
-  return {
-    enabled: accountConfig.enabled !== false,
-    accountId: accountConfig.accountId || "",
-    gateway: accountConfig.gateway,
-    allowFrom: accountConfig.allowFrom || [],
-  };
+  return { enabled: false, accountId: "", allowFrom: []};
 }
 
 /**

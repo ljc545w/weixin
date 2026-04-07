@@ -2,10 +2,11 @@ import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
 import { DOMParser } from "@xmldom/xmldom";
 
-import type { ResolvedWeixinAccount, WeixinMessage, WeixinChatRoomUserProfile } from "./types.js";
+import type { ResolvedWeixinAccount, WeixinMessage, WeixinChatRoomUserProfile, WeixinChannelConfig } from "./types.js";
 import { getWeixinRuntime } from "./runtime.js";
 import { sendText, sendPat } from "./outbound.js";
 import { setReplyUrlForAccount } from "./runtime.js";
+import { OpenClawConfig } from "openclaw/plugin-sdk";
 
 // ============================================================================
 // Constants
@@ -158,7 +159,9 @@ function isCommandAuthorized(senderId: string, allowFromList: string[]): boolean
 // ============================================================================
 
 export async function getGatewayUrl(ctx: GatewayContext): Promise<string> {
-  return ctx.account.gateway || DEFAULT_GATEWAY_URL;
+  const cfg = ctx.cfg as OpenClawConfig;
+  let weixin = cfg.channels?.weixin as WeixinChannelConfig;
+  return weixin?.gateway || DEFAULT_GATEWAY_URL;
 }
 
 /**
@@ -453,6 +456,7 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
 
 let sharedWss: WebSocketServer | null = null;
 let sharedHttp: http.Server | null = null;
+let isStartingGateway: boolean = false;
 
 function handleIncomingMessage(ctx: GatewayContext, weixinMessage: WeixinMessage): void {
   const { log } = ctx;
@@ -472,10 +476,16 @@ function handleIncomingMessage(ctx: GatewayContext, weixinMessage: WeixinMessage
 
 export async function startGateway(ctx: GatewayContext): Promise<void> {
   const { account, abortSignal, onReady, onError, log } = ctx;
+  if(isStartingGateway){
+    return;
+  }else{
+    isStartingGateway = true;
+  }
 
   if (sharedWss || sharedHttp) {
     log?.info(`[weixin:${account.accountId}] using existing server`);
     onReady?.("");
+    isStartingGateway = false;
     return;
   }
 
@@ -484,11 +494,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     const parsed = new URL(gatewayUrl);
 
     if (parsed.protocol === "http:") {
-      return startHttp(ctx);
+
+      startHttp(ctx);
+      isStartingGateway = false;
+      return;
     }
 
     if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
       onError?.(new Error("unsupported protocol"));
+      isStartingGateway = false;
       return;
     }
 
@@ -561,7 +575,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     server.listen(port, hostname, () => {
       console.log(`[weixin] server listening on ${parsed.protocol}//${hostname}:${port}`);
     });
-
+    isStartingGateway = false;
     // Wait for abort signal
     return new Promise<void>((resolve) => {
       abortSignal.addEventListener("abort", () => {
@@ -570,6 +584,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       }, { once: true });
     });
   } catch (err) {
+    isStartingGateway = false;
     log?.error(`[weixin:${account.accountId}] failed to start server: ${err}`);
     throw err;
   }
