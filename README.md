@@ -47,11 +47,51 @@ openclaw plugin install ./weixin
 openclaw plugin enable weixin
 ```
 
-3. 完成`weixin`插件配置。
-3.1 在`openclaw.json.channels.weixin`中配置`accountId`（机器人的微信ID）。
-3.2 在`openclaw.json.channels.weixin`中配置`gateway`，插件会基于此地址启动`wss`或`http`服务，然后，你需要**自行完成消息监听**，将消息推送到该地址。
-3.3 设置`openclaw.json.channels.weixin.enable`为`true`。
-3.4 在`openclaw.json.channels.weixin.allowFrom`添加允许执行`/new`等命令的用户微信ID。
+3. 完成`weixin`插件配置。  
+3.1 在`openclaw.json.channels.weixin`中配置`gateway`，插件会基于此地址启动`wss`或`http`服务，然后，你需要**自行完成消息监听**，将消息推送到该地址。  
+3.2 在`openclaw.json.channels.weixin`中配置`accounts`，单个账号示例:  
+```
+"accounts": {
+    "default": {
+        "enabled": true,
+        "accountId": "wxid_111",
+        "allowFrom": [
+            "wxid_222"
+        ],
+    }
+}
+```
+多个账号示例: 
+```
+"accounts": {
+    "default": {
+        "enabled": true,
+        "accountId": "wxid_111",
+        "allowFrom": [
+            "wxid_222"
+        ],
+    },
+    "bot1": {
+        "enabled": true,
+        "accountId": "wxid_333",
+        "allowFrom": [
+            "wxid_444"
+        ],
+    },
+    "bot2": {
+        "enabled": true,
+        "accountId": "wxid_444",
+        "allowFrom": [
+            "*"
+        ],
+    },
+    "bot3": {
+        "enabled": false,
+        "accountId": "wxid_555",
+        "allowFrom": [],
+    }
+}
+```
 
 ## ⚙️ 关键适配点
 
