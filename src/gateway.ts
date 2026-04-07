@@ -7,6 +7,7 @@ import { getWeixinRuntime } from "./runtime.js";
 import { sendText, sendPat } from "./outbound.js";
 import { setReplyUrlForAccount } from "./runtime.js";
 import { OpenClawConfig } from "openclaw/plugin-sdk";
+import { resolveWeixinAccount } from "./config.js";
 
 // ============================================================================
 // Constants
@@ -223,11 +224,12 @@ function parsePatMessage(xml: string): { targetId: string; chatRoom?: string } |
  */
 async function sendOutboundPat(
   ctx: GatewayContext,
+  account: ResolvedWeixinAccount,
   message: QueuedMessage,
   targetId: string,
   chatRoom?: string
 ): Promise<void> {
-  const { account, log } = ctx;
+  const { log } = ctx;
 
   try {
     const target = chatRoom || targetId;
@@ -265,10 +267,11 @@ async function sendOutboundPat(
  */
 async function sendOutboundMessage(
   ctx: GatewayContext,
+  account: ResolvedWeixinAccount,
   message: QueuedMessage,
   replyText: string
 ): Promise<void> {
-  const { account, log } = ctx;
+  const { log } = ctx;
 
   try {
     const outboundCtx = {
@@ -295,11 +298,12 @@ async function dispatchReply(
   pluginRuntime: ReturnType<typeof getWeixinRuntime>,
   ctxPayload: any,
   ctx: GatewayContext,
+  account: ResolvedWeixinAccount,
   message: QueuedMessage,
   cfg: unknown,
   agentId: string
 ): Promise<void> {
-  const { account, log } = ctx;
+  const { log } = ctx;
 
   try {
     const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, agentId);
@@ -335,10 +339,10 @@ async function dispatchReply(
             const patInfo = parsePatMessage(replyText);
             if (patInfo) {
               // Strict mode: only XML pat format is processed, no fallback
-              await sendOutboundPat(ctx, message, patInfo.targetId, patInfo.chatRoom);
+              await sendOutboundPat(ctx, account, message, patInfo.targetId, patInfo.chatRoom);
             } else {
               // Not a pat message, send as normal text
-              await sendOutboundMessage(ctx, message, replyText);
+              await sendOutboundMessage(ctx, account, message, replyText);
             }
           }
 
@@ -380,8 +384,8 @@ async function dispatchReply(
   }
 }
 
-export async function handleMessage(ctx: GatewayContext, message: QueuedMessage): Promise<void> {
-  const { account, cfg, log } = ctx;
+export async function handleMessage(ctx: GatewayContext, account: ResolvedWeixinAccount, message: QueuedMessage): Promise<void> {
+  const { cfg, log } = ctx;
   log?.debug?.(`[weixin:${account.accountId}] Received message: ${JSON.stringify(message)}`);
   log?.info(`[weixin:${account.accountId}] Processing message from ${message.senderId}: ${message.content}`);
 
@@ -396,6 +400,10 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
     cfg,
     channel: "weixin",
     accountId: account.accountId,
+    peer: {
+      kind: message.isGroupMsg ? "group" : "direct",
+      id: message.senderId,
+    },
   });
 
   const envelopeOptions = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
@@ -447,7 +455,7 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
     CommandAuthorized: commandAuthorized,
   });
 
-  await dispatchReply(pluginRuntime, ctxPayload, ctx, message, cfg, route.agentId);
+  await dispatchReply(pluginRuntime, ctxPayload, ctx, account, message, cfg, route.agentId);
 }
 
 // ============================================================================
@@ -456,16 +464,15 @@ export async function handleMessage(ctx: GatewayContext, message: QueuedMessage)
 
 let sharedWss: WebSocketServer | null = null;
 let sharedHttp: http.Server | null = null;
-let isStartingGateway: boolean = false;
 
-function handleIncomingMessage(ctx: GatewayContext, weixinMessage: WeixinMessage): void {
+function handleIncomingMessage(ctx: GatewayContext, account: ResolvedWeixinAccount, weixinMessage: WeixinMessage): void {
   const { log } = ctx;
 
   try {
     const queueMessage = parseWeixinMessage(weixinMessage);
 
     if (isSupportedMessageType(queueMessage.type)) {
-      handleMessage(ctx, queueMessage);
+      handleMessage(ctx, account, queueMessage);
     } else {
       console.log(`[weixin] message type ${queueMessage.type} is not supported, ignoring.`);
     }
@@ -476,16 +483,10 @@ function handleIncomingMessage(ctx: GatewayContext, weixinMessage: WeixinMessage
 
 export async function startGateway(ctx: GatewayContext): Promise<void> {
   const { account, abortSignal, onReady, onError, log } = ctx;
-  if(isStartingGateway){
-    return;
-  }else{
-    isStartingGateway = true;
-  }
 
-  if (sharedWss || sharedHttp) {
-    log?.info(`[weixin:${account.accountId}] using existing server`);
+  if (sharedWss) {
+    log?.info(`[weixin:${account.accountId}] using existing websocket server`);
     onReady?.("");
-    isStartingGateway = false;
     return;
   }
 
@@ -494,15 +495,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     const parsed = new URL(gatewayUrl);
 
     if (parsed.protocol === "http:") {
-
-      startHttp(ctx);
-      isStartingGateway = false;
-      return;
+      return startHttp(ctx);
     }
 
     if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
       onError?.(new Error("unsupported protocol"));
-      isStartingGateway = false;
       return;
     }
 
@@ -513,44 +510,53 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     sharedWss = new WebSocketServer({ server });
 
     sharedWss.on("connection", (conn: WebSocket, req) => {
-      log?.info(`[weixin:${ctx.account.accountId}] client connected from ${req.socket.remoteAddress}`);
+      log?.info(`[weixin] client connected from ${req.socket.remoteAddress}`);
 
       conn.on("message", (data) => {
         try {
           const rawData = data.toString();
           const weixinMessage = JSON.parse(rawData) as WeixinMessage;
-          handleIncomingMessage(ctx, weixinMessage);
+          const resolveAccount = resolveWeixinAccount(ctx.cfg as OpenClawConfig, weixinMessage.accountId);
+          if(!resolveAccount.accountId){
+            log?.error(`[weixin] unsupported accountId ${weixinMessage.accountId}`);
+          }
+          handleIncomingMessage(ctx, resolveAccount, weixinMessage);
         } catch (err) {
-          log?.error(`[weixin:${ctx.account.accountId}] Message parse error: ${err}`);
+          log?.error(`[weixin] Message parse error: ${err}`);
         }
       });
 
       conn.on("close", (code, reason) => {
-        log?.info(`[weixin:${ctx.account.accountId}] client disconnected: ${code} ${reason.toString()}`);
+        log?.info(`[weixin] client disconnected: ${code} ${reason.toString()}`);
       });
 
       conn.on("error", (err) => {
-        log?.error(`[weixin:${ctx.account.accountId}] client websocket error: ${err.message}`);
+        log?.error(`[weixin] client websocket error: ${err.message}`);
         onError?.(err);
       });
     });
 
-    sharedWss.on("error", (err) => {
-      log?.error(`[weixin] WebSocket server error: ${err.message}`);
+    sharedWss.on("error", (err: any) => {
+      if(err.code === "EADDRINUSE"){
+        console.log(`[weixin:${account.accountId}] use existing websocket server ${parsed.protocol}://${hostname}:${port}`);
+        onReady?.("");
+        return;
+      }
+      log?.error(`[weixin:${account.accountId}] WebSocket server error: ${err.code}`);
       sharedWss?.close();
       sharedWss = null;
       onError?.(err);
     });
 
     const shutdown = () => {
-      log?.info(`[weixin:${account.accountId}] abort signal received, shutting down server`);
+      log?.info(`[weixin] abort signal received, shutting down server`);
 
       if (sharedWss) {
         try {
           sharedWss.close();
-          log?.info(`[weixin:${account.accountId}] WebSocket server closed`);
+          log?.info(`[weixin] WebSocket server closed`);
         } catch (err) {
-          log?.error(`[weixin:${account.accountId}] error closing WebSocket server: ${err}`);
+          log?.error(`[weixin] error closing WebSocket server: ${err}`);
         }
         sharedWss = null;
       }
@@ -558,10 +564,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       if (sharedHttp) {
         try {
           sharedHttp.close(() => {
-            log?.info(`[weixin:${account.accountId}] HTTP server closed`);
+            log?.info(`[weixin] HTTP server closed`);
           });
         } catch (err) {
-          log?.error(`[weixin:${account.accountId}] error closing HTTP server: ${err}`);
+          log?.error(`[weixin] error closing HTTP server: ${err}`);
         }
         sharedHttp = null;
       }
@@ -573,9 +579,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     });
 
     server.listen(port, hostname, () => {
-      console.log(`[weixin] server listening on ${parsed.protocol}//${hostname}:${port}`);
+      console.log(`[weixin] websocket server listening on ${parsed.protocol}//${hostname}:${port}`);
     });
-    isStartingGateway = false;
     // Wait for abort signal
     return new Promise<void>((resolve) => {
       abortSignal.addEventListener("abort", () => {
@@ -584,8 +589,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       }, { once: true });
     });
   } catch (err) {
-    isStartingGateway = false;
-    log?.error(`[weixin:${account.accountId}] failed to start server: ${err}`);
+    log?.error(`[weixin] failed to start server: ${err}`);
     throw err;
   }
 }
@@ -599,6 +603,7 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
 
   if (sharedHttp) {
     log?.info(`[weixin:${account.accountId}] using existing HTTP server`);
+    onReady?.("");
     return;
   }
 
@@ -625,11 +630,15 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
 
           try {
             const weixinMessage = JSON.parse(body) as WeixinMessage;
-            handleIncomingMessage(ctx, weixinMessage);
+            const resolveAccount = resolveWeixinAccount(ctx.cfg as OpenClawConfig, weixinMessage.accountId);
+            if(!resolveAccount.accountId){
+              log?.error(`[weixin] unsupported accountId ${weixinMessage.accountId}`);
+            }
+            handleIncomingMessage(ctx, resolveAccount, weixinMessage);
             res.writeHead(200, { "Content-Type": "text/html" });
             res.end("ok");
           } catch (err) {
-            log?.error(`[weixin:${account.accountId}] failed to parse message: ${err}`);
+            log?.error(`[weixin] failed to parse message: ${err}`);
             res.writeHead(400, { "Content-Type": "text/html" });
             res.end("400 Bad Request");
           }
@@ -647,8 +656,13 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
     });
 
     sharedHttp.on("error", (err: any) => {
-      console.log(`[weixin] http start failed on http://${hostname}:${port}`);
-      const retErr = new Error(`[weixin:${account.accountId}] failed to start http server: ${err.code}`);
+      if(err.code === "EADDRINUSE"){
+        console.log(`[weixin:${account.accountId}] use existing http server http://${hostname}:${port}`);
+        onReady?.("");
+        return;
+      }
+      console.log(`[weixin:${account.accountId}] http start failed on http://${hostname}:${port}`);
+      const retErr = new Error(`[weixin}] failed to start http server: ${err.code}`);
       sharedHttp?.close();
       sharedHttp = null;
       onError?.(retErr);
@@ -658,7 +672,7 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
       console.log(`[weixin] http listening on http://${hostname}:${port}`);
       onReady?.(null);
     });
-
+    
     // Wait for abort signal
     return new Promise<void>((resolve) => {
       abortSignal.addEventListener("abort", () => {
@@ -670,7 +684,7 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
       }, { once: true });
     });
   } catch (err) {
-    log?.error(`[weixin:${account.accountId}] failed to start http server: ${err}`);
+    log?.error(`[weixin] failed to start http server: ${err}`);
     throw err;
   }
 }

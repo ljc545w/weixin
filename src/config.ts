@@ -11,14 +11,11 @@ export function listWeixinAccountIds(cfg: OpenClawConfig): string[] {
   const ids = new Set<string>();
   const weixin = cfg.channels?.weixin as WeixinChannelConfig | undefined;
 
-  if(weixin?.default && weixin?.default.enabled){
-    ids.add(DEFAULT_ACCOUNT_ID);
-  }
-
   if (weixin?.accounts) {
-    for (const accountId of Object.keys(weixin.accounts)) {
-      if (weixin.accounts[accountId].enabled) {
-        ids.add(accountId);
+    for (const accountName of Object.keys(weixin.accounts)) {
+      const account = weixin.accounts[accountName];
+      if (account.enabled && account.accountId) {
+        ids.add(account.accountId);
       }
     }
   }
@@ -31,7 +28,8 @@ export function listWeixinAccountIds(cfg: OpenClawConfig): string[] {
  */
 export function resolveDefaultWeixinAccountId(cfg: OpenClawConfig): string {
   const weixin = cfg.channels?.weixin as WeixinChannelConfig | undefined;
-  return weixin?.default?.accountId || DEFAULT_ACCOUNT_ID;
+  const account = weixin?.accounts?.[DEFAULT_ACCOUNT_ID];
+  return account?.accountId || "";
 }
 
 /**
@@ -44,21 +42,25 @@ export function resolveWeixinAccount(
   const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
   const weixin = cfg.channels?.weixin as WeixinChannelConfig | undefined;
   // 读取默认账户
-  if (resolvedAccountId === DEFAULT_ACCOUNT_ID || resolvedAccountId === weixin?.default?.accountId) {
+  const defaultAccount = weixin?.accounts?.[DEFAULT_ACCOUNT_ID];
+  if (resolvedAccountId === DEFAULT_ACCOUNT_ID || resolvedAccountId === defaultAccount?.accountId) {
     return {
-      enabled: weixin?.default?.enabled || false,
-      accountId: weixin?.default?.accountId || "",
-      allowFrom: weixin?.default?.allowFrom || [],
+      enabled: defaultAccount?.enabled || false,
+      accountId: defaultAccount?.accountId || "",
+      allowFrom: defaultAccount?.allowFrom || [],
     };
   } else {
-    // 命名账户从 accounts 读取
-    const account = weixin?.accounts?.[resolvedAccountId];
-    if(account){
-      return {
-        enabled: account.enabled,
-        accountId: resolvedAccountId,
-        allowFrom: account?.allowFrom || [],
-      };
+    if(weixin?.accounts){
+      for (const accountName of Object.keys(weixin.accounts)) {
+        const account = weixin.accounts[accountName];
+        if (account.enabled && account.accountId == resolvedAccountId) {
+          return {
+            enabled: account.enabled,
+            accountId: account.accountId,
+            allowFrom: account?.allowFrom || [],
+          };
+        }
+      }
     }
   }
   return { enabled: false, accountId: "", allowFrom: []};
