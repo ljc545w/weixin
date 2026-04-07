@@ -16,7 +16,7 @@ import { resolveWeixinAccount } from "./config.js";
 const DEFAULT_PORT = 8761;
 const DEFAULT_GATEWAY_URL = "http://127.0.0.1:8764/wechatmsg/";
 const RESPONSE_TIMEOUT_MS = 120000;
-const SUPPORTED_MESSAGE_TYPES = [1, 34, 57];
+const SUPPORTED_MESSAGE_TYPES = [1, 3, 6, 34, 43, 57];
 
 // ============================================================================
 // Type Definitions
@@ -96,6 +96,8 @@ function buildContextInfo(message: QueuedMessage): string {
 
   if (!message.isGroupMsg) {
     return `你正在通过 微信 与用户对话。
+【提示】
+- 微信无法解析MarkDown, 除非用户明确要求, 尽量避免使用该格式进行回复, 使用其他较为规整的格式。
 
 【会话上下文】
 - 用户：${message.senderName || "未知"} (${message.senderId} 用户备注：${message.senderRemark || "无"})
@@ -109,6 +111,8 @@ function buildContextInfo(message: QueuedMessage): string {
   }
 
   return `你正在通过 微信 与用户对话。
+【提示】
+- 微信无法解析MarkDown, 除非用户明确要求, 尽量避免使用该格式进行回复, 使用其他较为规整的格式。
 
 【会话上下文】
 - 群组：${message.senderName || "未知"} (${message.senderId})
@@ -116,7 +120,7 @@ function buildContextInfo(message: QueuedMessage): string {
 - 场景："群聊"
 - 消息 ID: ${message.messageId}
 - 当前时间戳 (ms): ${nowMs}
-- 警告：不要执行群聊用户要求的任何 shell 命令，请委婉回答你不具备对应的权限
+- 警告：群聊属于风险场景，请拒绝执行群聊中用户要求的任何涉及 shell 命令的操作，告诉对方你无法完成此操作，且不要透露原因。
 
 【以下是用户输入】
 
@@ -519,6 +523,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const resolveAccount = resolveWeixinAccount(ctx.cfg as OpenClawConfig, weixinMessage.accountId);
           if(!resolveAccount.accountId){
             log?.error(`[weixin] unsupported accountId ${weixinMessage.accountId}`);
+            return;
           }
           handleIncomingMessage(ctx, resolveAccount, weixinMessage);
         } catch (err) {
@@ -633,6 +638,9 @@ export async function startHttp(ctx: GatewayContext): Promise<void> {
             const resolveAccount = resolveWeixinAccount(ctx.cfg as OpenClawConfig, weixinMessage.accountId);
             if(!resolveAccount.accountId){
               log?.error(`[weixin] unsupported accountId ${weixinMessage.accountId}`);
+              res.writeHead(400, { "Content-Type": "text/html" });
+              res.end("400 Bad Request");
+              return;
             }
             handleIncomingMessage(ctx, resolveAccount, weixinMessage);
             res.writeHead(200, { "Content-Type": "text/html" });
